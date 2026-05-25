@@ -1,0 +1,3 @@
+[submodule "vendor/klipper"]
+	path = vendor/klipper
+	url = https://github.com/Klipper3d/klipper.git
