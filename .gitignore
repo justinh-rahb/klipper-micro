@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+.env
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+*.egg-info/
+build/
+dist/
+firmware/cache/
+
+# Synced from vendor/klipper at build time
+src/proto/msgproto.py
+src/proto/_vendor_clocksync.py
