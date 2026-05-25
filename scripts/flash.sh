@@ -5,22 +5,49 @@
 # Usage:
 #   ./scripts/flash.sh [PORT]
 #
-# Defaults to /dev/tty.usbserial-3110. Set MP_FIRMWARE to use a non-default
-# image (e.g. an LVGL-enabled build for Phase 4 UI work).
+# Defaults to /dev/tty.usbserial-3110. By default this flashes the tested
+# LVGL-enabled CYD image. Set MP_FIRMWARE_FLAVOR=stock to use upstream stock
+# MicroPython, or set MP_FIRMWARE to use a specific local file.
 
 set -euo pipefail
 
 PORT="${1:-/dev/tty.usbserial-3110}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CACHE="$REPO_ROOT/firmware/cache"
-DEFAULT_FW_URL="https://micropython.org/resources/firmware/ESP32_GENERIC-20250911-v1.26.1.bin"
-DEFAULT_FW_NAME="ESP32_GENERIC-20250911-v1.26.1.bin"
-FW_PATH="${MP_FIRMWARE:-$CACHE/$DEFAULT_FW_NAME}"
+
+DEFAULT_FW_FLAVOR="${MP_FIRMWARE_FLAVOR:-lvgl}"
+case "$DEFAULT_FW_FLAVOR" in
+    lvgl)
+        DEFAULT_FW_URL="https://raw.githubusercontent.com/de-dh/ESP32-Cheap-Yellow-Display-Micropython-LVGL/main/lvgl9_firmwares/lvgl_micropy_ESP32_GENERIC-4.bin"
+        DEFAULT_FW_NAME="lvgl_micropy_ESP32_GENERIC-4.bin"
+        ;;
+    stock)
+        DEFAULT_FW_URL="https://micropython.org/resources/firmware/ESP32_GENERIC-20250911-v1.26.1.bin"
+        DEFAULT_FW_NAME="ESP32_GENERIC-20250911-v1.26.1.bin"
+        ;;
+    *)
+        echo "error: unsupported MP_FIRMWARE_FLAVOR '$DEFAULT_FW_FLAVOR' (use 'lvgl' or 'stock')" >&2
+        exit 1
+        ;;
+esac
+
+if [ -n "${MP_FIRMWARE:-}" ]; then
+    FW_PATH="$MP_FIRMWARE"
+    FW_URL="${MP_FIRMWARE_URL:-}"
+else
+    FW_PATH="$CACHE/$DEFAULT_FW_NAME"
+    FW_URL="$DEFAULT_FW_URL"
+fi
 
 if [ ! -f "$FW_PATH" ]; then
-    echo "downloading MicroPython firmware to $FW_PATH"
+    if [ -z "${FW_URL:-}" ]; then
+        echo "error: firmware file not found at $FW_PATH" >&2
+        echo "set MP_FIRMWARE_URL to download it automatically, or place the file there first" >&2
+        exit 1
+    fi
+    echo "downloading firmware to $FW_PATH"
     mkdir -p "$CACHE"
-    curl -fsSL -o "$FW_PATH" "$DEFAULT_FW_URL"
+    curl -fsSL -o "$FW_PATH" "$FW_URL"
 fi
 
 if ! command -v esptool >/dev/null 2>&1; then

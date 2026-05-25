@@ -9,10 +9,10 @@ The CYD provides a 2.8" touchscreen UI; WiFi exposes a small HTTP API for
 remote control. The Klipper MCU on the other end of the UART line runs
 unmodified stock firmware.
 
-> **Status: protocol layer validated on real hardware.** Phase 1 (CPython
-> tests, 12/12 passing against a mock MCU) and Phase 2 (MicroPython 1.26.1 on
-> a CYD, 19/19 checks passing in `device_selftest.py`) are complete. No
-> Klipper MCU has been connected yet — that's the next step.
+> **Status: protocol layer and CYD UI firmware validated on real hardware.**
+> Phase 1 (CPython tests, 12/12 passing against a mock MCU) and Phase 2
+> (CYD bring-up with the pinned LVGL-enabled MicroPython image) are complete.
+> No Klipper MCU has been connected yet — that's the next step.
 
 ## What it talks to
 
@@ -57,10 +57,14 @@ python3 -m venv .venv
 ### Bring up a real CYD
 
 ```bash
-./scripts/flash.sh   /dev/tty.usbserial-3110         # erases + flashes MP 1.26.1 + installs zlib/logging
+./scripts/flash.sh   /dev/tty.usbserial-3110         # erases + flashes the pinned LVGL CYD image + installs zlib/logging
 ./scripts/upload.sh  /dev/tty.usbserial-3110         # pushes src/proto/ to the device
 ./scripts/selftest.sh /dev/tty.usbserial-3110        # runs device_selftest.py — 19 checks
 ```
+
+The default firmware comes from de-dh's CYD LVGL project and is downloaded on
+demand into `firmware/cache/`. Use `MP_FIRMWARE_FLAVOR=stock` if you want the
+plain upstream ESP32 MicroPython image instead.
 
 Run the mock MCU and an interactive REPL against it:
 
