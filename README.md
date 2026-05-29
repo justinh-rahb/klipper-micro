@@ -115,6 +115,8 @@ is ready to be wired to the CYD's UART.
 | `UartTransport` | MicroPython / ESP32 hardware UART (standard CYD) |
 | `UsbCdcTransport` | MicroPython on ESP32-S2/S3 or RP2040 native USB |
 
+[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/wildtang3nt)
+
 ## License
 
 Source files under `src/` are MIT-licensed (this project). `vendor/klipper/` is
