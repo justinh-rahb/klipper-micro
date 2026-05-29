@@ -41,6 +41,11 @@ STATUS_H = 28
 FOOTER_H = 32
 POLL_INTERVAL_MS = 500
 CONNECT_TIMEOUT_TICKS = 30  # 30 × 500 ms = 15 s
+SCAN_DELAY_MS = 50          # let the screen render before scan starts
+
+# Bezel safety — the 3D-printed case clips a few pixels off each edge.
+# Match the values used by MainScreen so all touch targets stay visible.
+EDGE_INSET = 18
 
 
 class WifiScreen:
@@ -53,16 +58,21 @@ class WifiScreen:
         self._selected_ssid = None
         self._connect_timer = None
         self._connect_ticks = 0
+        self._scan_timer = None
 
         self._build_list_view()
         self._build_password_view()
         self._show_list()
-        self._do_scan()
+        # Kick scan off the next LVGL tick — the screen has to render
+        # first or the 2-3 s blocking scan looks like a frozen UI.
+        self._schedule_scan()
 
     def dispose(self):
-        if self._connect_timer is not None:
-            self._connect_timer.delete()
-            self._connect_timer = None
+        for attr in ("_connect_timer", "_scan_timer"):
+            t = getattr(self, attr, None)
+            if t is not None:
+                t.delete()
+                setattr(self, attr, None)
 
     # ------------------------------------------------------------------
     # List view
@@ -88,7 +98,7 @@ class WifiScreen:
 
         back = lv.button(hdr)
         back.set_size(50, 22)
-        back.align(lv.ALIGN.LEFT_MID, 4, 0)
+        back.align(lv.ALIGN.LEFT_MID, EDGE_INSET - 4, 0)
         bl = lv.label(back)
         bl.set_text("< back")
         bl.center()
@@ -107,7 +117,7 @@ class WifiScreen:
 
         scan_btn = lv.button(hdr)
         scan_btn.set_size(44, 22)
-        scan_btn.align(lv.ALIGN.RIGHT_MID, -2, 0)
+        scan_btn.align(lv.ALIGN.RIGHT_MID, -EDGE_INSET, 0)
         sl = lv.label(scan_btn)
         sl.set_text("Scan")
         sl.center()
@@ -158,7 +168,7 @@ class WifiScreen:
 
         back = lv.button(hdr)
         back.set_size(50, 22)
-        back.align(lv.ALIGN.LEFT_MID, 4, 0)
+        back.align(lv.ALIGN.LEFT_MID, EDGE_INSET - 4, 0)
         bl = lv.label(back)
         bl.set_text("< back")
         bl.center()
@@ -173,9 +183,21 @@ class WifiScreen:
         f = theme.font(12)
         if f:
             self._ssid_title.set_style_text_font(f, 0)
-        self._ssid_title.align(lv.ALIGN.LEFT_MID, 60, 0)
+        self._ssid_title.align(lv.ALIGN.LEFT_MID, EDGE_INSET + 38, 0)
         self._ssid_title.set_long_mode(lv.label.LONG_MODE.DOTS)
         self._ssid_title.set_width(200)
+
+        # Editable SSID textarea (shown only in manual-entry mode, hidden
+        # otherwise — overlays the title in the same row).
+        self._ssid_ta = lv.textarea(hdr)
+        self._ssid_ta.set_size(180, 22)
+        self._ssid_ta.align(lv.ALIGN.LEFT_MID, EDGE_INSET + 38, 0)
+        self._ssid_ta.set_one_line(True)
+        self._ssid_ta.set_placeholder_text("SSID")
+        f = theme.font(12)
+        if f:
+            self._ssid_ta.set_style_text_font(f, 0)
+        self._ssid_ta.add_flag(lv.obj.FLAG.HIDDEN)
 
         # --- Password row ---
         pwd_row = lv.obj(self._pwd_cont)
@@ -201,6 +223,13 @@ class WifiScreen:
         f = theme.font(14)
         if f:
             self._pwd_ta.set_style_text_font(f, 0)
+        # Tapping the password field steals keyboard focus from the SSID
+        # field (used in manual-entry mode).
+        self._pwd_ta.add_event_cb(
+            lambda e: self._kb.set_textarea(self._pwd_ta),
+            lv.EVENT.CLICKED,
+            None,
+        )
 
         # --- Keyboard ---
         kb_y = HEADER_H + 44 + 4
@@ -248,9 +277,21 @@ class WifiScreen:
         self._list_cont.remove_flag(lv.obj.FLAG.HIDDEN)
         self._pwd_cont.add_flag(lv.obj.FLAG.HIDDEN)
 
-    def _show_password(self, ssid):
+    def _show_password(self, ssid, manual=False):
         self._selected_ssid = ssid
-        self._ssid_title.set_text(ssid)
+        self._manual_mode = manual
+        if manual:
+            # Hide the title label; show the SSID textarea; focus it for the
+            # keyboard so the user types the SSID first.
+            self._ssid_title.add_flag(lv.obj.FLAG.HIDDEN)
+            self._ssid_ta.remove_flag(lv.obj.FLAG.HIDDEN)
+            self._ssid_ta.set_text("")
+            self._kb.set_textarea(self._ssid_ta)
+        else:
+            self._ssid_title.set_text(ssid)
+            self._ssid_title.remove_flag(lv.obj.FLAG.HIDDEN)
+            self._ssid_ta.add_flag(lv.obj.FLAG.HIDDEN)
+            self._kb.set_textarea(self._pwd_ta)
         self._pwd_ta.set_text("")
         self._conn_status.set_text("")
         self._list_cont.add_flag(lv.obj.FLAG.HIDDEN)
@@ -260,26 +301,52 @@ class WifiScreen:
     # Scan
     # ------------------------------------------------------------------
 
-    def _do_scan(self):
+    def _schedule_scan(self):
+        """Render the cached network list (scan happened at boot — see
+        ``wifi.preheat()`` for the why)."""
+        if self._scan_timer is not None:
+            self._scan_timer.delete()
+        # Tiny delay so the screen draws before we clean/repopulate the list.
+        self._scan_timer = lv.timer_create(self._scan_tick, SCAN_DELAY_MS, None)
+
+    def _scan_tick(self, _t):
+        if self._scan_timer is not None:
+            self._scan_timer.delete()
+            self._scan_timer = None
+        self._render_networks()
+
+    def _render_networks(self):
         try:
             import wifi as _wifi
-        except ImportError:
-            self._status_lbl.set_text("WiFi not available")
+        except ImportError as e:
+            print("[wifi-screen] import wifi failed:", e)
+            self._status_lbl.set_text("WiFi module missing")
             return
 
-        self._status_lbl.set_text("Scanning…")
-        self._net_list.clean()
-
-        nets = _wifi.scan()
+        nets = _wifi.cached_networks()
         cur = _wifi.current_ssid()
 
         if cur:
             self._status_lbl.set_text("Connected: " + cur)
+        elif nets:
+            self._status_lbl.set_text("%d networks (scanned at boot)" % (len(nets),))
         else:
-            self._status_lbl.set_text("Not connected")
+            self._status_lbl.set_text("No networks (reboot to rescan)")
+
+        self._net_list.clean()
+
+        # Always offer manual entry — for hidden SSIDs or when cache is stale.
+        manual_btn = self._net_list.add_button(
+            lv.SYMBOL.EDIT, "Enter SSID manually…"
+        )
+        manual_btn.add_event_cb(
+            lambda e: self._show_password("", manual=True),
+            lv.EVENT.CLICKED,
+            None,
+        )
 
         if not nets:
-            self._net_list.add_text("No networks found")
+            self._net_list.add_text("(reboot the device to rescan)")
             return
 
         for ssid, _rssi in nets:
@@ -300,18 +367,33 @@ class WifiScreen:
     def _on_connect(self, _evt):
         try:
             import wifi as _wifi
-        except ImportError:
-            self._conn_status.set_text("Not available")
+        except ImportError as e:
+            print("[wifi-screen] import wifi failed:", e)
+            self._conn_status.set_text("Module missing")
             return
+
+        # In manual-entry mode, the SSID comes from the textarea — not from
+        # the cached list selection.
+        if getattr(self, "_manual_mode", False):
+            self._selected_ssid = self._ssid_ta.get_text().strip()
+            if not self._selected_ssid:
+                self._conn_status.set_text("Enter SSID")
+                return
 
         password = self._pwd_ta.get_text()
         if not password:
             self._conn_status.set_text("Enter password")
             return
 
+        print("[wifi-screen] connect requested to ssid=%r (pwd len %d)" %
+              (self._selected_ssid, len(password)))
+
         self._conn_status.set_text("Connecting…")
         self._connect_ticks = 0
-        _wifi.start_connect(self._selected_ssid, password)
+        ok = _wifi.start_connect(self._selected_ssid, password)
+        if not ok:
+            self._conn_status.set_text("Connect call failed")
+            return
 
         if self._connect_timer is not None:
             self._connect_timer.delete()
@@ -326,20 +408,58 @@ class WifiScreen:
             return
 
         self._connect_ticks += 1
+
+        # Surface the live status text on every tick so the user sees
+        # progress (idle → connecting → got IP / wrong password / ...).
+        status = _wifi.status_text()
+
         if _wifi.check_connected():
+            print("[wifi-screen] connect OK after %d ticks" % self._connect_ticks)
             self._connect_timer.delete()
             self._connect_timer = None
             _wifi.save_creds(self._selected_ssid, self._pwd_ta.get_text())
             self.state.set_wifi_connected(True)
             self._conn_status.set_text("Connected!")
-            # Return to list and refresh status
             self._show_list()
             cur = _wifi.current_ssid()
             self._status_lbl.set_text("Connected: " + cur if cur else "Connected")
-        elif self._connect_ticks >= CONNECT_TIMEOUT_TICKS:
+            return
+
+        # Surface terminal failure states immediately — don't wait the
+        # full 15 s timeout if the firmware already knows it's hopeless.
+        code = _wifi.status_code()
+        terminal_codes = self._terminal_codes()
+        if code in terminal_codes:
+            print("[wifi-screen] connect failed: %s" % status)
             self._connect_timer.delete()
             self._connect_timer = None
-            self._conn_status.set_text("Failed — check password")
+            self._conn_status.set_text(status)
+            return
+
+        # Otherwise keep polling, surfacing the current status text.
+        self._conn_status.set_text(status + "…")
+
+        if self._connect_ticks >= CONNECT_TIMEOUT_TICKS:
+            print("[wifi-screen] connect timed out at status=%s" % status)
+            self._connect_timer.delete()
+            self._connect_timer = None
+            self._conn_status.set_text("Timed out (%s)" % status)
+
+    @staticmethod
+    def _terminal_codes():
+        """Return the set of network.STAT_* codes that mean 'give up now'."""
+        try:
+            import network
+            codes = set()
+            for name in ("STAT_WRONG_PASSWORD", "STAT_NO_AP_FOUND",
+                         "STAT_ASSOC_FAIL", "STAT_BEACON_TIMEOUT",
+                         "STAT_HANDSHAKE_TIMEOUT", "STAT_CONNECT_FAIL"):
+                v = getattr(network, name, None)
+                if v is not None:
+                    codes.add(v)
+            return codes
+        except Exception:
+            return set()
 
     # ------------------------------------------------------------------
     # Back navigation
@@ -359,4 +479,8 @@ class WifiScreen:
     # ------------------------------------------------------------------
 
     def _on_scan(self, _evt):
-        self._do_scan()
+        # Live rescan doesn't work post-LVGL on plain ESP32 (see wifi.preheat
+        # docstring).  Refresh the displayed list from the boot-time cache,
+        # and remind the user that a reboot is needed for a fresh sweep.
+        self._render_networks()
+        self._status_lbl.set_text("Cached at boot — reboot to rescan")
