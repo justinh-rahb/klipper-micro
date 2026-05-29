@@ -5,8 +5,9 @@ and iterated without a Klipper MCU. Implements a primitive thermal model: if
 the heater is on, current_temp drifts toward target; otherwise toward ambient.
 
 The interface — ``temperature``, ``target``, ``heater_state``, ``fan_speed``,
-``mcu_connected``, ``wifi_connected`` properties plus ``set_target`` and
-``set_fan`` setters — is the contract the real ``app.State`` will satisfy.
+``mcu_connected``, ``wifi_connected``, ``device_name``, ``quick_temps``
+properties plus the matching setters — is the contract the real
+``app.State`` will satisfy.
 """
 
 import time
@@ -23,6 +24,11 @@ class MockState:
         self._mcu_connected = True
         self._wifi_connected = False
         self._last_tick = time.time()
+        # Configurable presentation — populated from /config.json at boot
+        # (see src/main.py).  Sensible defaults so the UI also works under
+        # the demo script with no config file present.
+        self._device_name = "klipper-micro"
+        self._quick_temps = [45.0, 50.0, 55.0, 60.0]
         # Settings (will move to a Config object in Phase 3, but the UI
         # surface is the same)
         self.pid_kp = 22.2
@@ -64,6 +70,14 @@ class MockState:
     def wifi_connected(self):
         return self._wifi_connected
 
+    @property
+    def device_name(self):
+        return self._device_name
+
+    @property
+    def quick_temps(self):
+        return self._quick_temps
+
     # --- mutators --------------------------------------------------------
 
     def set_target(self, value):
@@ -87,6 +101,15 @@ class MockState:
 
     def set_wifi_connected(self, connected):
         self._wifi_connected = bool(connected)
+
+    def set_device_name(self, name):
+        if isinstance(name, str) and name.strip():
+            self._device_name = name.strip()
+
+    def set_quick_temps(self, temps):
+        """Replace the quick-temp preset list (max 4 entries)."""
+        if temps:
+            self._quick_temps = [float(t) for t in list(temps)[:4]]
 
     # --- thermal model ---------------------------------------------------
 

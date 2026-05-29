@@ -11,6 +11,8 @@ the MCU during the config phase.
 
 ```json
 {
+  "device_name": "Filament Dryer",
+  "quick_temps": [45, 50, 55, 60],
   "transport": {
     "type": "uart",
     "uart_id": 2,
@@ -62,6 +64,23 @@ the MCU during the config phase.
 ```
 
 ## Field reference
+
+### `device_name` (string, optional)
+
+Title shown at the top of the main screen.  Default `"klipper-micro"`.
+Useful when you have several boards on the same network and want each
+one to identify itself as e.g. `"Filament Dryer"` or `"Chamber Heater"`.
+
+Not exposed in the touch UI — edit the JSON directly (or via the web
+API once Phase 5 lands).
+
+### `quick_temps` (list of numbers, optional)
+
+Preset temperature buttons on the main screen.  Up to 4 entries, in
+°C.  Default `[45, 50, 55, 60]`.
+
+Tapping a button sets the target directly with no confirmation; the
+SET area still opens the precise +/- picker.
 
 ### `transport`
 

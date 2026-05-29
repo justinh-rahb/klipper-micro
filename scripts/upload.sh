@@ -79,6 +79,7 @@ for d in ['proto','ui','ui/screens']:
     + cp src/boot.py                    :boot.py \
     + cp src/main.py                    :main.py \
     + cp src/wifi.py                    :wifi.py \
+    + cp src/config.py                  :config.py \
     + cp src/proto/__init__.py          :proto/__init__.py \
     + cp src/proto/msgproto.py          :proto/msgproto.py \
     + cp src/proto/transport.py         :proto/transport.py \
@@ -94,6 +95,7 @@ for d in ['proto','ui','ui/screens']:
     + cp src/ui/screens/main.py         :ui/screens/main.py \
     + cp src/ui/screens/settings.py     :ui/screens/settings.py \
     + cp src/ui/screens/wifi.py         :ui/screens/wifi.py \
+    + cp src/ui/screens/setpoint.py     :ui/screens/setpoint.py \
     + reset
 
 echo "=== upload complete — board restarting ==="

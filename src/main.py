@@ -61,6 +61,16 @@ def main():
     state.set_mcu_connected(False)
     state.set_wifi_connected(False)
 
+    # Load presentation defaults from /config.json (device name, quick-temp
+    # presets).  Errors are silent: invalid/missing config falls back to
+    # MockState's own defaults so the device always boots.
+    try:
+        import config as _config
+        state.set_device_name(_config.device_name())
+        state.set_quick_temps(_config.quick_temps())
+    except Exception:
+        pass
+
     # --- WiFi (best-effort at boot) ----------------------------------------
     # Load saved credentials from /config.json and attempt to connect.
     # Non-critical: if this fails the app still boots; the user can configure
