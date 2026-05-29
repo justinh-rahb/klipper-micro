@@ -52,6 +52,14 @@ def main():
     time.sleep(3)
 
     # --- Display + touch ---------------------------------------------------
+    # NOTE on WiFi: bringing WiFi up at boot — even just activating without
+    # connecting or scanning — leaves the touch SPI bus unresponsive on the
+    # plain-ESP32 CYD under this LVGL firmware build.  Verified by bisecting
+    # boot order with and without wifi.preheat().  Until we figure out the
+    # coexistence story (or move to ESP32-S3 hardware), WiFi is deferred:
+    # the W icon will open the WiFi screen but no networks will be cached
+    # and the connect path is not yet usable.  Touch works.
+    _wifi = None
     from ui import display
     display.init(backlight_pct=80, with_touch=True)
 
@@ -71,25 +79,24 @@ def main():
     except Exception:
         pass
 
-    # --- WiFi (best-effort at boot) ----------------------------------------
-    # Load saved credentials from /config.json and attempt to connect.
-    # Non-critical: if this fails the app still boots; the user can configure
-    # WiFi via the W button on the main screen.
-    try:
-        import wifi as _wifi
-        ssid, password = _wifi.load_creds()
-        if ssid and password:
-            _wifi.start_connect(ssid, password)
-            # Poll for up to 10 s before continuing; display init already ran
-            # so LVGL keeps the screen alive during the wait.
-            deadline = time.time() + 10
-            while time.time() < deadline:
-                if _wifi.check_connected():
-                    state.set_wifi_connected(True)
-                    break
-                time.sleep(0.5)
-    except Exception:
-        pass  # no wifi module on CPython / connect error — silently skip
+    # --- WiFi connect from saved creds (best-effort) -----------------------
+    # WiFi is already preheated; this is just attempting auto-connect from
+    # whatever is in /config.json.  Non-critical: if this fails the app
+    # still boots; the user can configure WiFi via the W button on the
+    # main screen.
+    if _wifi is not None:
+        try:
+            ssid, password = _wifi.load_creds()
+            if ssid and password:
+                _wifi.start_connect(ssid, password)
+                deadline = time.time() + 10
+                while time.time() < deadline:
+                    if _wifi.check_connected():
+                        state.set_wifi_connected(True)
+                        break
+                    time.sleep(0.5)
+        except Exception:
+            pass
 
     # --- Screens -----------------------------------------------------------
     from ui.manager import ScreenManager
