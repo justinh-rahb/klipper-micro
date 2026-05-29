@@ -76,15 +76,20 @@ class MainScreen:
             title.set_style_text_font(f, 0)
         title.align(lv.ALIGN.LEFT_MID, 6, 0)
 
+        # WiFi indicator — tappable; opens the WiFi settings screen.
+        # Positioned so its right edge (≈ 272px) clears the SET button's
+        # left edge (278px) by 6px.
         self.wifi_dot = lv.label(bar)
         self.wifi_dot.set_text("W")
         self.wifi_dot.set_style_text_color(lv.color_hex(theme.COLOR_OFF), 0)
-        self.wifi_dot.align(lv.ALIGN.RIGHT_MID, -36, 0)
+        self.wifi_dot.align(lv.ALIGN.RIGHT_MID, -48, 0)
+        self.wifi_dot.add_flag(lv.obj.FLAG.CLICKABLE)
+        self.wifi_dot.add_event_cb(self._on_wifi, lv.EVENT.CLICKED, None)
 
         self.mcu_dot = lv.label(bar)
         self.mcu_dot.set_text("M")
         self.mcu_dot.set_style_text_color(lv.color_hex(theme.COLOR_OFF), 0)
-        self.mcu_dot.align(lv.ALIGN.RIGHT_MID, -56, 0)
+        self.mcu_dot.align(lv.ALIGN.RIGHT_MID, -68, 0)
 
         # Settings button — small gear-style label in the corner
         settings_btn = lv.button(bar)
@@ -212,9 +217,14 @@ class MainScreen:
     def _on_settings(self, _evt):
         if self.manager is None:
             return
-        # Lazy import to avoid a circular reference between screens
         from .settings import SettingsScreen
         self.manager.show(SettingsScreen, state=self.state)
+
+    def _on_wifi(self, _evt):
+        if self.manager is None:
+            return
+        from .wifi import WifiScreen
+        self.manager.show(WifiScreen, state=self.state)
 
     def _on_fan(self, _evt):
         cur = self.state.fan_speed

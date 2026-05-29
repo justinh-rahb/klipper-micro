@@ -33,7 +33,7 @@ def _show_panic(msg):
         lbl.set_style_text_color(lv.color_hex(0xFF4444), 0)
         lbl.set_style_text_align(lv.TEXT_ALIGN.CENTER, 0)
         lbl.set_width(300)
-        lbl.set_long_mode(lv.label.LONG.WRAP)
+        lbl.set_long_mode(lv.label.LONG_MODE.WRAP)
         lbl.center()
     except Exception:
         pass  # LVGL not up yet; exception already printed to REPL
@@ -44,6 +44,13 @@ def _show_panic(msg):
 # ---------------------------------------------------------------------------
 
 def main():
+    # --- Programming window ------------------------------------------------
+    # Sleep briefly so mpremote can enter raw REPL before LVGL starts.
+    # Once display.init() runs the FreeRTOS task handler intercepts Ctrl+C
+    # and the REPL becomes unreachable.  3 s is imperceptible at boot but
+    # long enough for upload.sh to connect on any machine.
+    time.sleep(3)
+
     # --- Display + touch ---------------------------------------------------
     from ui import display
     display.init(backlight_pct=80, with_touch=True)
@@ -51,10 +58,28 @@ def main():
     # --- State -------------------------------------------------------------
     from ui.mock_state import MockState
     state = MockState()
-    # Default: not yet connected to MCU or WiFi.
-    # Phase 3 will replace this with real device state.
     state.set_mcu_connected(False)
     state.set_wifi_connected(False)
+
+    # --- WiFi (best-effort at boot) ----------------------------------------
+    # Load saved credentials from /config.json and attempt to connect.
+    # Non-critical: if this fails the app still boots; the user can configure
+    # WiFi via the W button on the main screen.
+    try:
+        import wifi as _wifi
+        ssid, password = _wifi.load_creds()
+        if ssid and password:
+            _wifi.start_connect(ssid, password)
+            # Poll for up to 10 s before continuing; display init already ran
+            # so LVGL keeps the screen alive during the wait.
+            deadline = time.time() + 10
+            while time.time() < deadline:
+                if _wifi.check_connected():
+                    state.set_wifi_connected(True)
+                    break
+                time.sleep(0.5)
+    except Exception:
+        pass  # no wifi module on CPython / connect error — silently skip
 
     # --- Screens -----------------------------------------------------------
     from ui.manager import ScreenManager
