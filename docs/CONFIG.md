@@ -64,9 +64,45 @@ the MCU during the config phase.
 ## Field reference
 
 ### `transport`
-- `type` — `"uart"` (only supported value initially) or `"tcp"` (testing only)
-- `uart_id`, `tx`, `rx`, `baudrate` — MicroPython `machine.UART` parameters
-- For `tcp`: `host` and `port` instead of UART fields
+
+Selects the physical link between the host and the Klipper MCU.  This is a
+boot-time setting; changing it requires a restart.
+
+| `type` | Class used | Typical use case |
+|---|---|---|
+| `"uart"` | `UartTransport` | Standard CYD (ESP32-2432S028R) → MCU via GPIO UART pins |
+| `"usb_serial"` | `SerialTransport` | CPython on a laptop → MCU via USB CDC serial |
+| `"usb_cdc"` | `UsbCdcTransport` | ESP32-S2 / ESP32-S3 / RP2040 on-chip USB → MCU |
+| `"tcp"` | `StreamTransport` | Testing only — mock MCU over a TCP socket |
+
+#### `type: "uart"` fields
+- `uart_id` — MicroPython UART bus number (0–2; default `2` on the CYD)
+- `tx`, `rx` — GPIO pin numbers (default `22`, `27` for the CYD P1 connector)
+- `baudrate` — bits per second; must match the MCU firmware (default `250000`)
+
+#### `type: "usb_serial"` fields
+- `port` — serial port path, e.g. `"/dev/ttyACM0"`, `"/dev/tty.usbmodem001"`,
+  or `"COM3"` on Windows
+- `baudrate` — bits per second (default `250000`)
+
+  Used when running the full host stack from a laptop via `scripts/connect.py`
+  or when the CYD is replaced by a desktop Python environment for development.
+  Requires `pyserial` (`pip install pyserial`).
+
+#### `type: "usb_cdc"` fields
+No additional fields — the single native USB CDC interface is opened
+automatically.
+
+  Applicable only on boards whose SOC has an on-chip USB peripheral:
+  ESP32-S2, ESP32-S3, RP2040/RP2350.  The standard CYD (ESP32-2432S028R)
+  routes USB through an external CP2102/CH340 bridge chip; for that board
+  use `"uart"` instead.
+
+#### `type: "tcp"` fields
+- `host` — hostname or IP (default `"127.0.0.1"`)
+- `port` — TCP port (default `5555`)
+
+  Only intended for the CPython test suite against `tests/mock_mcu.py`.
 
 ### `wifi`
 - `ssid`, `password` — optional; if omitted, AP mode is used for first-time setup
@@ -95,6 +131,9 @@ NTC β-model temperature sensor.
 
 On boot, `src/config.py` validates:
 - All required fields present
+- `transport.type` is one of the four recognised values
+- `usb_serial` requires `port` to be a non-empty string
+- `usb_cdc` is rejected on standard ESP32 (plain ESP32 has no on-chip USB)
 - `heaters[].sensor` references exist
 - Pin names exist in the MCU's enumerations (after handshake)
 - `max_temp > min_temp`, `0 < max_power <= 1`, etc.
