@@ -41,7 +41,9 @@ PADDING = 4
 RIGHT_INSET = 18
 
 # Same idea for the bottom — keep the fan bar away from the bezel.
-BOTTOM_INSET = 12
+# Reduced from 12→8 to make room for the OFF row above the FAN section
+# while still leaving a 16px clearance from the absolute bottom edge.
+BOTTOM_INSET = 8
 
 
 class MainScreen:
@@ -231,7 +233,13 @@ class MainScreen:
         # Reads state.quick_temps (configured via /config.json, default
         # 45/50/55/60).  Tapping a preset jumps the target directly — no
         # picker, no confirmation.
-        self._build_quick_buttons(panel, target_inner_w, top_y=92)
+        self._build_quick_buttons(panel, target_inner_w, top_y=88)
+
+        # --- OFF / E-stop row ---------------------------------------------
+        # Full-width red button below the presets.  Single tap = set target
+        # to 0 (normal off).  Long-press (≥400 ms) = E-stop (target=0 + fan=0,
+        # plus emergency_stop to the MCU once Phase 3 wires it up).
+        self._build_off_button(panel, target_inner_w, top_y=140)
 
         # --- FAN section ---------------------------------------------------
         fan_caption = lv.label(panel)
@@ -290,12 +298,56 @@ class MainScreen:
                 None,
             )
 
+    def _build_off_button(self, parent, inner_w, top_y):
+        """Full-width red OFF button below the quick-temp grid.
+
+        Tap fires LV_EVENT_CLICKED → set target to 0 (normal off).
+        Hold fires LV_EVENT_LONG_PRESSED → E-stop (target=0 + fan=0; Phase
+        3 will additionally issue emergency_stop to the MCU).  LVGL does
+        not also fire CLICKED on release when LONG_PRESSED has fired, so
+        the two actions are cleanly distinguished.
+        """
+        btn = lv.button(parent)
+        btn.set_size(inner_w, 20)
+        btn.set_pos(0, top_y)
+        btn.set_style_pad_all(0, 0)
+        # Distinct red colouring so it never looks like another preset.
+        btn.set_style_bg_color(lv.color_hex(theme.COLOR_ERROR), 0)
+        btn.set_style_bg_color(
+            lv.color_hex(theme.COLOR_OVERSHOOT), lv.STATE.PRESSED
+        )
+
+        lbl = lv.label(btn)
+        lbl.set_text("OFF")
+        lbl.center()
+        lbl.set_style_text_color(lv.color_hex(0xFFFFFF), 0)
+        f = theme.font(14) or theme.font(12)
+        if f is not None:
+            lbl.set_style_text_font(f, 0)
+
+        btn.add_event_cb(self._on_off_tap, lv.EVENT.CLICKED, None)
+        btn.add_event_cb(self._on_off_hold, lv.EVENT.LONG_PRESSED, None)
+
     # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
 
     def _on_quick_temp(self, temp):
         self.state.set_target(temp)
+        self._refresh(None)
+
+    def _on_off_tap(self, _evt):
+        # Normal off: heater stops, fan keeps spinning so the chamber
+        # can cool down at the user's discretion.
+        self.state.set_target(0)
+        self._refresh(None)
+
+    def _on_off_hold(self, _evt):
+        # E-stop: zero the target AND the fan.  Phase 3 will also issue
+        # emergency_stop to the MCU here; until then this is the safest
+        # state we can put the device in from the host side alone.
+        self.state.set_target(0)
+        self.state.set_fan(0)
         self._refresh(None)
 
     def _on_open_setpoint(self, _evt):
