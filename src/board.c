@@ -9,6 +9,8 @@
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_vendor.h"
+#include "esp_lcd_touch.h"
+#include "esp_lcd_touch_xpt2046.h"
 #include "esp_lcd_ili9341.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -35,7 +37,7 @@
 
 static const char *TAG = "board";
 static esp_lcd_panel_handle_t s_panel;
-static spi_device_handle_t s_touch;
+static esp_lcd_touch_handle_t s_touch;
 static lv_display_t *s_display;
 
 static bool color_done(esp_lcd_panel_io_handle_t io,
@@ -55,47 +57,46 @@ static void flush_display(lv_display_t *display, const lv_area_t *area,
                               area->x2 + 1, area->y2 + 1, pixels);
 }
 
-static uint16_t touch_sample(uint8_t command)
+static uint16_t map_touch_axis(uint16_t value, uint16_t input_min,
+                               uint16_t input_max, uint16_t output_max)
 {
-    spi_transaction_t transaction = {
-        .flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA,
-        .length = 24,
-    };
-    transaction.tx_data[0] = command;
-    if (spi_device_transmit(s_touch, &transaction) != ESP_OK) return 0;
-    return (uint16_t)((transaction.rx_data[1] << 8)
-                      | transaction.rx_data[2]) >> 3;
+    if (value <= input_min) return 0;
+    if (value >= input_max) return output_max;
+    return (uint16_t)(((uint32_t)(value - input_min) * output_max)
+                      / (input_max - input_min));
 }
 
-static int32_t map_clamped(int32_t value, int32_t in_min, int32_t in_max,
-                           int32_t out_max)
+static void calibrate_touch(esp_lcd_touch_handle_t touch, uint16_t *x,
+                            uint16_t *y, uint16_t *strength,
+                            uint8_t *point_count, uint8_t max_points)
 {
-    if (value < in_min) value = in_min;
-    if (value > in_max) value = in_max;
-    return (value - in_min) * out_max / (in_max - in_min);
+    (void)touch;
+    (void)strength;
+    const uint8_t count = *point_count < max_points
+        ? *point_count : max_points;
+    for (uint8_t i = 0; i < count; ++i) {
+        /* Raw CYD panel range is approximately 250..3850.  The component has
+           already scaled that into the portrait 240x320 axes here. */
+        x[i] = map_touch_axis(x[i], 15, 226, LCD_HEIGHT - 1);
+        y[i] = map_touch_axis(y[i], 20, 301, LCD_WIDTH - 1);
+    }
 }
 
 static void read_touch(lv_indev_t *input, lv_indev_data_t *data)
 {
     (void)input;
-    const uint16_t pressure = touch_sample(0xb0);
-    if (pressure < 120) {
+    data->continue_reading = false;
+    data->state = LV_INDEV_STATE_RELEASED;
+    if (esp_lcd_touch_read_data(s_touch) != ESP_OK) return;
+    esp_lcd_touch_point_data_t point;
+    uint8_t count = 0;
+    if (esp_lcd_touch_get_data(s_touch, &point, &count, 1) != ESP_OK
+        || count == 0) {
         data->state = LV_INDEV_STATE_RELEASED;
         return;
     }
-    uint32_t raw_x = 0;
-    uint32_t raw_y = 0;
-    for (unsigned i = 0; i < 4; ++i) {
-        raw_x += touch_sample(0xd0);
-        raw_y += touch_sample(0x90);
-    }
-    raw_x /= 4;
-    raw_y /= 4;
-    /* CYD landscape calibration. Keep these constants in one place until
-       NVS-backed four-point calibration is added. */
-    data->point.x = LCD_WIDTH - 1
-        - map_clamped(raw_y, 250, 3850, LCD_WIDTH - 1);
-    data->point.y = map_clamped(raw_x, 250, 3850, LCD_HEIGHT - 1);
+    data->point.x = point.x;
+    data->point.y = point.y;
     data->state = LV_INDEV_STATE_PRESSED;
 }
 
@@ -173,8 +174,10 @@ bool km_board_display_init(void)
         return false;
     esp_lcd_panel_reset(s_panel);
     esp_lcd_panel_init(s_panel);
+    /* Match the CYD's known-good MADCTL value (MV only).  Setting MX after
+       swapping axes mirrors the landscape image top-to-bottom. */
     esp_lcd_panel_swap_xy(s_panel, true);
-    esp_lcd_panel_mirror(s_panel, true, false);
+    esp_lcd_panel_mirror(s_panel, false, false);
     esp_lcd_panel_disp_on_off(s_panel, true);
 
     const spi_bus_config_t touch_bus = {
@@ -185,20 +188,42 @@ bool km_board_display_init(void)
         .quadhd_io_num = -1,
         .max_transfer_sz = 3,
     };
-    const spi_device_interface_config_t touch_device = {
-        .clock_speed_hz = 2000000,
-        .mode = 0,
-        .spics_io_num = TOUCH_CS,
-        .queue_size = 1,
+    if (spi_bus_initialize(TOUCH_HOST, &touch_bus, SPI_DMA_CH_AUTO) != ESP_OK)
+        return false;
+    esp_lcd_panel_io_handle_t touch_io = NULL;
+    const esp_lcd_panel_io_spi_config_t touch_io_config =
+        ESP_LCD_TOUCH_IO_SPI_XPT2046_CONFIG(TOUCH_CS);
+    const esp_lcd_touch_config_t touch_config = {
+        /* The driver scales in the panel's portrait axes, then applies the
+           software mirror and XY swap below. */
+        .x_max = LCD_HEIGHT,
+        .y_max = LCD_WIDTH,
+        .rst_gpio_num = GPIO_NUM_NC,
+        /* Poll pressure through SPI.  PENIRQ varies across CYD revisions. */
+        .int_gpio_num = GPIO_NUM_NC,
+        .levels = {
+            .reset = 0,
+            .interrupt = 0,
+        },
+        .process_coordinates = calibrate_touch,
+        .flags = {
+            .swap_xy = true,
+            .mirror_x = false,
+            .mirror_y = false,
+        },
     };
-    if (spi_bus_initialize(TOUCH_HOST, &touch_bus, SPI_DMA_CH_AUTO) != ESP_OK
-        || spi_bus_add_device(TOUCH_HOST, &touch_device, &s_touch) != ESP_OK)
+    if (esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)TOUCH_HOST,
+                                 &touch_io_config, &touch_io) != ESP_OK
+        || esp_lcd_touch_new_spi_xpt2046(touch_io, &touch_config,
+                                         &s_touch) != ESP_OK)
         return false;
 
     lv_init();
     s_display = lv_display_create(LCD_WIDTH, LCD_HEIGHT);
     if (!s_display) return false;
-    lv_display_set_color_format(s_display, LV_COLOR_FORMAT_RGB565);
+    /* SPI panels consume RGB565 most-significant byte first.  LVGL's native
+       RGB565 buffer is little-endian on ESP32, so render it byte-swapped. */
+    lv_display_set_color_format(s_display, LV_COLOR_FORMAT_RGB565_SWAPPED);
     lv_display_set_flush_cb(s_display, flush_display);
     void *draw_buffer = heap_caps_malloc(LCD_WIDTH * LCD_DRAW_LINES * 2,
                                          MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
@@ -209,6 +234,7 @@ bool km_board_display_init(void)
 
     lv_indev_t *input = lv_indev_create();
     lv_indev_set_type(input, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_display(input, s_display);
     lv_indev_set_read_cb(input, read_touch);
 
     const esp_timer_create_args_t timer_args = {

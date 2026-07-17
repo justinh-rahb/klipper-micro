@@ -97,7 +97,7 @@ static void make_quick_button(lv_obj_t *parent, int x, int y, int value)
     snprintf(text, sizeof(text), "%d", value);
     lv_obj_t *caption = label(button, text, COLOR_TEXT, &lv_font_montserrat_14);
     lv_obj_center(caption);
-    lv_obj_add_event_cb(button, set_target, LV_EVENT_CLICKED,
+    lv_obj_add_event_cb(button, set_target, LV_EVENT_PRESSED,
                         (void *)(intptr_t)value);
 }
 
@@ -236,7 +236,7 @@ void km_ui_create(void)
     lv_obj_set_style_bg_color(off, lv_color_hex(COLOR_ERROR), 0);
     lv_obj_t *off_label = label(off, "OFF", COLOR_TEXT, &lv_font_montserrat_14);
     lv_obj_center(off_label);
-    lv_obj_add_event_cb(off, off_clicked, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(off, off_clicked, LV_EVENT_PRESSED, NULL);
     lv_obj_add_event_cb(off, emergency_stop, LV_EVENT_LONG_PRESSED, NULL);
 
     lv_obj_t *fan_caption = label(right, "FAN", COLOR_DIM,
@@ -250,8 +250,8 @@ void km_ui_create(void)
                               LV_PART_INDICATOR);
     lv_obj_align(s_ui.fan_bar, LV_ALIGN_BOTTOM_MID, 0, -8);
     lv_obj_add_flag(s_ui.fan_bar, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(s_ui.fan_bar, cycle_fan, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(s_ui.fan_bar, cycle_fan, LV_EVENT_PRESSED, NULL);
 
     refresh(NULL);
-    lv_timer_create(refresh, 250, NULL);
+    lv_timer_create(refresh, 100, NULL);
 }

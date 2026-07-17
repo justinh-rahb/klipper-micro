@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Native code references the pinned Klipper submodule in place; no generated
-# Python copies are required anymore. Keep this command as a harmless check for
-# existing developer muscle memory.
+# Verify that the pinned Klipper submodule is available. Native sources use it
+# in place, so there is nothing to generate or copy.
 
 set -euo pipefail
 

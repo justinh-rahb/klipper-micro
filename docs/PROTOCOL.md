@@ -62,7 +62,7 @@ host                                 MCU
 
 The regression uses an exponentially-weighted moving average (`DECAY = 1/30`)
 plus a minimum-RTT tracker (with aging). The algorithm is ported to C in
-[`main/klipper_clocksync.c`](../main/klipper_clocksync.c) from
+[`src/klipper_clocksync.c`](../src/klipper_clocksync.c) from
 [`vendor/klipper/klippy/clocksync.py`](../vendor/klipper/klippy/clocksync.py).
 
 ## Configuration phase
@@ -114,8 +114,8 @@ them.
 - [`klippy/serialhdl.py`](../vendor/klipper/klippy/serialhdl.py) — reference host implementation
 - [`klippy/chelper/serialqueue.c`](../vendor/klipper/klippy/chelper/serialqueue.c) — C frame queue (what we replace)
 - [`klippy/chelper/msgblock.c`](../vendor/klipper/klippy/chelper/msgblock.c) — C frame check / VLQ
-- [`main/klipper_protocol.c`](../main/klipper_protocol.c) — native framing, CRC, VLQ, resync
-- [`main/klipper_dictionary.c`](../main/klipper_dictionary.c) — streaming identify filter
-- [`main/klipper_client.c`](../main/klipper_client.c) — UART handshake and retry state machine
+- [`src/klipper_protocol.c`](../src/klipper_protocol.c) — native framing, CRC, VLQ, resync
+- [`src/klipper_dictionary.c`](../src/klipper_dictionary.c) — streaming identify filter
+- [`src/klipper_client.c`](../src/klipper_client.c) — UART handshake and retry state machine
 - [`src/basecmd.c`](../vendor/klipper/src/basecmd.c) — upstream MCU-side base commands
 - [`src/pwmcmds.c`](../vendor/klipper/src/pwmcmds.c) — upstream MCU-side PWM commands

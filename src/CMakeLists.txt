@@ -10,5 +10,6 @@ idf_component_register(
         "klipper_clocksync.c"
         "klipper_client.c"
     INCLUDE_DIRS "."
-    REQUIRES driver esp_lcd esp_lcd_ili9341 esp_timer nvs_flash zlib lvgl
+    REQUIRES driver esp_lcd esp_lcd_ili9341 esp_lcd_touch_xpt2046 esp_timer
+        nvs_flash zlib lvgl
 )

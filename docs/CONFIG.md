@@ -1,22 +1,22 @@
 # Configuration roadmap
 
-Persistent runtime configuration has not yet been ported to the native branch.
+Persistent runtime configuration has not yet been implemented.
 Board-level values currently live beside the drivers so bring-up stays
 auditable:
 
 | Setting | Current value | Source |
 |---|---:|---|
-| Klipper UART | UART2, 250000 baud | `main/klipper_client.c` |
-| UART TX / RX | GPIO22 / GPIO27 | `main/klipper_client.c` |
-| Display/touch pins | standard ESP32-2432S028R | `main/board.c` |
-| Quick temperatures | 45, 50, 55, 60 C | `main/ui.c` |
-| Setpoint limit | 0..80 C | `main/app_state.c` |
-| Heater / thermistor / fan | PA1 / PA2 / PA3 | `main/klipper_client.c` |
-| Thermistor | 100k, Beta 3950, 4.7k pull-up | `main/heater_control.c` |
-| PID Kp / Ki / Kd | 22.2 / 1.08 / 114 (Klipper scale) | `main/heater_control.c` |
-| PWM cycle / refresh | 100 ms / 250 ms | `main/klipper_client.c` |
-| MCU output timeout | 3 seconds | `main/klipper_client.c` |
-| Sensor bounds / stale timeout | 0..85 C / 1 second | `main/heater_control.c` |
+| Klipper UART | UART2, 250000 baud | `src/klipper_client.c` |
+| UART TX / RX | GPIO22 / GPIO27 | `src/klipper_client.c` |
+| Display/touch pins | standard ESP32-2432S028R | `src/board.c` |
+| Quick temperatures | 45, 50, 55, 60 C | `src/ui.c` |
+| Setpoint limit | 0..80 C | `src/app_state.c` |
+| Heater / thermistor / fan | PA1 / PA2 / PA3 | `src/klipper_client.c` |
+| Thermistor | 100k, Beta 3950, 4.7k pull-up | `src/heater_control.c` |
+| PID Kp / Ki / Kd | 22.2 / 1.08 / 114 (Klipper scale) | `src/heater_control.c` |
+| PWM cycle / refresh | 100 ms / 250 ms | `src/klipper_client.c` |
+| MCU output timeout | 3 seconds | `src/klipper_client.c` |
+| Sensor bounds / stale timeout | 0..85 C / 1 second | `src/heater_control.c` |
 
 ## Planned persistence
 

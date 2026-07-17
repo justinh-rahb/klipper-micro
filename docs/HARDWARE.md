@@ -44,19 +44,9 @@ CYD P1                       Klipper MCU (3.3 V logic side)
 ```
 
 Use the same baudrate on both ends. Klipper's default for stock STM32 builds
-is `250000`. Configure in `src/config.json`:
-
-```json
-{
-  "transport": {
-    "type": "uart",
-    "uart_id": 2,
-    "baudrate": 250000,
-    "tx": 22,
-    "rx": 27
-  }
-}
-```
+is `250000`. The current UART2 baudrate and GPIO22/GPIO27 pin assignment are
+compile-time settings in `src/klipper_client.c`; NVS-backed runtime
+configuration is planned.
 
 ## Klipper MCU firmware
 
