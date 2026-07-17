@@ -1,114 +1,59 @@
-# Architecture
+# Native architecture
 
-klipper-micro is a single-process MicroPython application running on an ESP32.
-It speaks the standard Klipper host protocol to one MCU over UART, runs PID
-control loops on the ESP32, and presents the result via an LVGL touchscreen
-and a small HTTP API.
+klipper-micro is an ESP-IDF application on the original ESP32 CYD. FreeRTOS
+provides explicit task scheduling; LVGL remains the UI toolkit.
 
-```
-┌────────────────────────────────────────────────────────────┐
-│  ESP32 CYD (MicroPython + LVGL)                            │
-│                                                            │
-│   app.py  ─────────────  asyncio event loop                │
-│      │                                                     │
-│      ├── proto/transport ── UART ── (wire) ── Klipper MCU  │
-│      ├── proto/queue       (frames, retry, dispatch)       │
-│      ├── proto/clocksync   (regression on MCU clock)       │
-│      ├── devices/heater    (PID, smoothed temp)            │
-│      ├── devices/fan       (PWM, optional tach)            │
-│      ├── devices/safety    (runaway, sensor disconnect)    │
-│      ├── ui/screens        (LVGL: status, settings)        │
-│      └── web/server        (microdot HTTP)                 │
-└────────────────────────────────────────────────────────────┘
+```text
+app_main
+  +-- board.c               ILI9341, XPT2046, backlight, LVGL timer/task
+  +-- ui.c                  widgets and touch event handlers
+  +-- app_state.c           mutex-protected UI/control state
+  +-- klipper_client.c      UART link task and reconnect state machine
+      +-- klipper_protocol  64-byte frames, CRC, VLQ, stream resync
+      +-- klipper_dictionary streaming zlib filter for used message IDs
+      +-- klipper_clocksync host-time <-> MCU-clock regression
 ```
 
-## Protocol layers
+## Task model
 
-| Layer | Module | Source |
-|---|---|---|
-| VLQ + CRC + identify parsing | `src/proto/msgproto.py` | **Vendored** from `vendor/klipper/klippy/msgproto.py` |
-| UART / asyncio transport | `src/proto/transport.py` | New |
-| Frame queue + retransmit + dispatch | `src/proto/queue.py` | **New** — replaces `chelper/serialqueue.c` |
-| Bring-up handshake | `src/proto/handshake.py` | New (mirrors `klippy/serialhdl.py`) |
-| Clock-sync regression | `src/proto/clocksync.py` | **Adapted** from `vendor/klipper/klippy/clocksync.py` (math copied, reactor → asyncio) |
+| Task | Stack | Priority | Role |
+|---|---:|---:|---|
+| ESP-IDF `main` | 4 KB | default | one-time initialization |
+| `lvgl` | 6 KB | 5 | all LVGL timers, events, rendering |
+| `klipper` | 6 KB | 8 | UART framing, handshake, retry, clock polling |
 
-The single piece of new code that materially matters is `proto/queue.py`. It
-implements: HDLC-style framing with `0x7e` sync byte, 4-bit sequence numbers,
-CRC16-CCITT, application-level retry (matching `SerialRetryCommand`), and a
-register/dispatch model for responses.
+Only the LVGL task calls LVGL APIs. The protocol task publishes small state
+updates through `app_state.c`; its mutex prevents torn floating-point reads.
+Display completion is delivered by the ESP LCD DMA callback.
 
-## Why this works on MicroPython
+## Memory model
 
-Klipper's host side is split between Python (`klippy/`) and C
-(`klippy/chelper/`). The C bits — `serialqueue.c`, `stepcompress.c`,
-`itersolve.c` — exist for one reason: throughput. A full Klipper print
-generates thousands of step commands per second; that's not viable in
-interpreted Python.
+The runtime has no garbage collector and does not retain the MCU's data
+dictionary. During identify, each 40-byte compressed response is immediately
+fed to zlib. A 512-byte output window scans the JSON byte stream for the exact
+command/response formats this appliance uses. Only 16 message IDs and
+`CLOCK_FREQ` survive startup.
 
-For this project's workload (PID at ~10 Hz, ADC reads at the same rate, the
-occasional fan speed change), pure Python is fine. Everything in `klippy/`
-that's *already* pure Python — `msgproto.py`, `clocksync.py`, the PID
-algorithm in `extras/heaters.py` — is either used directly or copied verbatim.
+Steady-state protocol storage is one 64-byte RX frame, one 64-byte UART read
+buffer, one response record, and the clock regression state. LVGL renders into
+a single 320 x 20 x RGB565 DMA buffer (12,800 bytes), not a full framebuffer.
 
-The only piece we lose is the C `serialqueue`'s ability to handle pipelined,
-clock-scheduled, retransmit-tracked frame bursts. We replace it with the
-single-shot retry pattern (`SerialRetryCommand`-style) for the handshake and
-fire-and-forget sends for periodic traffic. RTT and retransmit are simpler
-than the C version's RFC-6298 SRTT implementation.
+## Protocol lifecycle
 
-## MicroPython portability notes
+1. Open UART2 at 250000 baud on GPIO22/GPIO27.
+2. Fetch `identify` in 40-byte chunks using hardcoded bootstrap IDs 1/0.
+3. Stream-inflate and retain the used dynamic IDs plus `CLOCK_FREQ`.
+4. Seed the 64-bit clock with `get_uptime`.
+5. Prime regression with eight `get_clock` samples 50 ms apart.
+6. Poll at 984 ms intervals; reconnect after request/retry exhaustion.
 
-Bringing the code up on MicroPython 1.26.1 surfaced a handful of differences
-from CPython's asyncio that are worth recording for future contributors. All
-have been worked around inside `src/proto/queue.py`:
+Commands use exponential request timeouts and a four-bit frame sequence.
+Malformed data is discarded through the next `0x7e` sync boundary. A long
+press on OFF queues `emergency_stop` directly to the Klipper client task.
 
-- **No `asyncio.Queue`** — replaced with `_AsyncFifo`, a tiny FIFO backed by a
-  list and an `asyncio.Event`.
-- **No `asyncio.Future`** — replaced with `_Waiter`, an Event-backed one-shot
-  result holder that exposes `set_result`/`set_exception`/`done`/`wait`.
-- **No `time.monotonic`** — provided as `monotonic()`, which on MicroPython
-  accumulates `time.ticks_diff(ticks_ms(), last)` into a float so we get a
-  stable monotonic seconds value (no wraparound concern for our timescale).
-- **`del bytearray[:n]` is not supported** in every MP build — the rx and
-  mock-MCU buffer code uses an explicit read-pointer plus periodic compaction
-  instead of slice deletion.
-- **`zlib` and `logging` are not in stock MicroPython** — both are available
-  via `mip install`; `scripts/flash.sh` handles this automatically.
+## Safety boundary
 
-All four substitutions are no-ops on CPython, which is why the same `src/`
-tree passes both the pytest suite *and* the on-device self-test.
-
-## Concurrency model
-
-One asyncio event loop. Tasks:
-
-- `queue._rx_loop` — drains the UART, frames, dispatches
-- `queue._tx_loop` — drains the send queue, writes frames
-- `clocksync._poll_loop` — `get_clock` every ~1s
-- `heater.control_loop` — PID tick at the thermistor sample rate
-- `safety.monitor_loop` — periodic safety checks
-- `web.serve` — microdot HTTP
-- LVGL is ticked from a hardware timer ISR
-
-No background threads, no locks — everything is cooperative via `await`.
-
-## Failure modes & safety
-
-- **MCU `max_duration` on `config_pwm_out`** is the hard backstop: if the host
-  stops sending PWM updates, the MCU shuts down the pin within 3 seconds. This
-  is the same mechanism real Klipper uses for the same reason.
-- **Thermal runaway** is detected host-side: full power + no temp rise for N
-  seconds triggers `emergency_stop`.
-- **Sensor disconnect** is ADC-rail detection — full-scale or zero for K
-  consecutive samples → `emergency_stop`.
-- **Out-of-bounds temperature** triggers `emergency_stop` immediately.
-
-## Forward compatibility
-
-- Initial MCU target: **STM32** (most common Klipper MCU)
-- Next: **RP2040 / RP2350**, then **AVR** (Arduino Mega class)
-- The handshake discovers all command IDs at connect time, so MCU changes
-  don't require host-side updates — only changes to the *set* of features we
-  use would matter.
-- USB serial is a future option alongside UART; the transport layer is
-  already abstracted.
+The native link and emergency-stop path are implemented. Heater configuration,
+ADC sampling, PID control, and the MCU `max_duration` watchdog are the next
+slice and must land together: UI setpoints must not energize output until the
+hard MCU timeout and sensor safety checks are active.

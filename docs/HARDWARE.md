@@ -9,7 +9,7 @@ The reference target is the [ESP32-2432S028R](https://github.com/witnessmenow/ES
 |---|---|
 | MCU | ESP32-WROOM-32 (dual-core Xtensa LX6 @ 240 MHz) |
 | Flash | 4 MB |
-| RAM | 520 KB (16 KB usable to MicroPython after LVGL is loaded) |
+| RAM | 520 KB total; native build currently reserves ~76 KB statically |
 | Display | 2.8" TFT, 240×320, ILI9341 |
 | Touch | Resistive, XPT2046 |
 | Networking | WiFi 802.11 b/g/n, Bluetooth |

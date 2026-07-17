@@ -13,6 +13,13 @@ venv/
 *.egg-info/
 build/
 dist/
+.pio/
+managed_components/
+dependencies.lock
+sdkconfig
+sdkconfig.old
+sdkconfig.*
+!sdkconfig.defaults
 firmware/cache/
 
 # Synced from vendor/klipper at build time
