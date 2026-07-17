@@ -30,13 +30,17 @@ control application. The native implementation instead uses:
 - Klipper framing, CRC16-CCITT, signed VLQ, retry/resynchronization
 - streaming identify handshake and selective command-ID discovery
 - `get_uptime` / `get_clock` clock regression ported from Klippy
-- MCU link status and a wired long-press `emergency_stop`
-- portable native tests for protocol, dictionary extraction, and clock sync
+- Klipper-side heater/fan PWM objects with a three-second output watchdog
+- periodic thermistor ADC sampling, Beta conversion, filtered PID control, and
+  clock-scheduled heater/fan updates
+- sensor rail/staleness and heating-rate shutdown checks
+- MCU link/control/fault status and a wired long-press `emergency_stop`
+- portable native tests for protocol, dictionary extraction, clock sync,
+  thermistor conversion, PID, and safety behavior
 
-Heater/thermistor configuration, live ADC state, PID, fan output, WiFi setup,
-and persistent configuration are the next implementation slice. The old
-`src/` Python tree remains temporarily as a UI/protocol behavior reference; it
-is not included in the ESP-IDF build.
+WiFi setup, persistent configuration, and secondary settings/status screens
+remain. The old `src/` Python tree remains temporarily as a UI/protocol
+behavior reference; it is not included in the ESP-IDF build.
 
 ## Build
 
@@ -83,6 +87,7 @@ main/
   board.c                 CYD display, touch, backlight, LVGL task
   ui.c                    native LVGL UI
   app_state.c             synchronized application state
+  heater_control.c        thermistor conversion, PID, and safety checks
   klipper_protocol.c      framing, CRC, VLQ, stream parser
   klipper_dictionary.c    streaming identify dictionary filter
   klipper_clocksync.c     Klippy clock-regression port

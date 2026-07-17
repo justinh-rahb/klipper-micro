@@ -98,3 +98,11 @@ double km_clocksync_system_time(const km_clocksync_t *sync,
     return ((double)mcu_clock - sync->estimate_clock)
         / sync->estimate_frequency + sync->estimate_time;
 }
+
+uint64_t km_clocksync_clock32_to_clock64(const km_clocksync_t *sync,
+                                         uint32_t clock32)
+{
+    if (!sync || !sync->initialized) return clock32;
+    const int32_t difference = (int32_t)(clock32 - (uint32_t)sync->last_clock);
+    return (uint64_t)((int64_t)sync->last_clock + difference);
+}

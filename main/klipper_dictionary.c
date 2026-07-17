@@ -4,7 +4,16 @@
 #include <ctype.h>
 #include <string.h>
 
-static const char *const s_patterns[KM_MSG_COUNT + 1] = {
+enum {
+    KM_SCAN_CLOCK_FREQ = KM_MSG_COUNT,
+    KM_SCAN_ADC_MAX,
+    KM_SCAN_PWM_MAX,
+    KM_SCAN_HEATER_PIN,
+    KM_SCAN_SENSOR_PIN,
+    KM_SCAN_FAN_PIN,
+};
+
+static const char *const s_patterns[KM_DICTIONARY_SCAN_COUNT] = {
     [KM_MSG_GET_UPTIME] = "\"get_uptime\"",
     [KM_MSG_GET_CLOCK] = "\"get_clock\"",
     [KM_MSG_GET_CONFIG] = "\"get_config\"",
@@ -14,22 +23,42 @@ static const char *const s_patterns[KM_MSG_COUNT + 1] = {
     [KM_MSG_QUEUE_PWM_OUT] = "\"queue_pwm_out oid=%c clock=%u value=%hu\"",
     [KM_MSG_SET_PWM_OUT] = "\"set_pwm_out pin=%u cycle_ticks=%u value=%hu\"",
     [KM_MSG_CONFIG_ANALOG_IN] = "\"config_analog_in oid=%c pin=%u\"",
-    [KM_MSG_QUERY_ANALOG_IN] = "\"query_analog_in oid=%c clock=%u sample_ticks=%u sample_count=%c rest_ticks=%u min_value=%hu max_value=%hu range_check_count=%c\"",
+    [KM_MSG_QUERY_ANALOG_IN] = "\"query_analog_in oid=%c clock=%u sample_ticks=%u sample_count=%c rest_ticks=%u bytes_per_report=%c min_value=%hu max_value=%hu range_check_count=%c\"",
     [KM_MSG_EMERGENCY_STOP] = "\"emergency_stop\"",
     [KM_MSG_CLEAR_SHUTDOWN] = "\"clear_shutdown\"",
     [KM_MSG_UPTIME] = "\"uptime high=%u clock=%u\"",
     [KM_MSG_CLOCK] = "\"clock clock=%u\"",
     [KM_MSG_CONFIG] = "\"config is_config=%c crc=%u is_shutdown=%c move_count=%hu\"",
-    [KM_MSG_ANALOG_IN_STATE] = "\"analog_in_state oid=%c next_clock=%u value=%hu\"",
-    [KM_MSG_COUNT] = "\"CLOCK_FREQ\"",
+    [KM_MSG_ANALOG_IN_STATE] = "\"analog_in_state oid=%c next_clock=%u values=%*s\"",
+    [KM_SCAN_CLOCK_FREQ] = "\"CLOCK_FREQ\"",
+    [KM_SCAN_ADC_MAX] = "\"ADC_MAX\"",
+    [KM_SCAN_PWM_MAX] = "\"PWM_MAX\"",
+    [KM_SCAN_HEATER_PIN] = "\"PA1\"",
+    [KM_SCAN_SENSOR_PIN] = "\"PA2\"",
+    [KM_SCAN_FAN_PIN] = "\"PA3\"",
 };
 
 static void finish_value(km_dictionary_t *dictionary, size_t index)
 {
     if (!dictionary->scans[index].has_digit) return;
-    if (index == KM_MSG_COUNT) {
+    if (index == KM_SCAN_CLOCK_FREQ) {
         dictionary->clock_frequency = dictionary->scans[index].value;
         dictionary->found_clock_frequency = true;
+    } else if (index == KM_SCAN_ADC_MAX) {
+        dictionary->adc_max = dictionary->scans[index].value;
+        dictionary->found_adc_max = true;
+    } else if (index == KM_SCAN_PWM_MAX) {
+        dictionary->pwm_max = dictionary->scans[index].value;
+        dictionary->found_pwm_max = true;
+    } else if (index == KM_SCAN_HEATER_PIN) {
+        dictionary->heater_pin = dictionary->scans[index].value;
+        dictionary->found_heater_pin = true;
+    } else if (index == KM_SCAN_SENSOR_PIN) {
+        dictionary->sensor_pin = dictionary->scans[index].value;
+        dictionary->found_sensor_pin = true;
+    } else if (index == KM_SCAN_FAN_PIN) {
+        dictionary->fan_pin = dictionary->scans[index].value;
+        dictionary->found_fan_pin = true;
     } else if (dictionary->scans[index].value <= UINT16_MAX) {
         dictionary->ids[index] = (uint16_t)dictionary->scans[index].value;
         dictionary->found[index] = true;
@@ -39,10 +68,8 @@ static void finish_value(km_dictionary_t *dictionary, size_t index)
 
 static void scan_byte(km_dictionary_t *dictionary, uint8_t byte)
 {
-    for (size_t i = 0; i <= KM_MSG_COUNT; ++i) {
-        if ((i < KM_MSG_COUNT && dictionary->found[i])
-            || (i == KM_MSG_COUNT && dictionary->found_clock_frequency))
-            continue;
+    for (size_t i = 0; i < KM_DICTIONARY_SCAN_COUNT; ++i) {
+        if (dictionary->scans[i].state == 3) continue;
         const char *pattern = s_patterns[i];
         switch (dictionary->scans[i].state) {
         case 0: {
@@ -118,11 +145,31 @@ bool km_dictionary_feed(km_dictionary_t *dictionary, const uint8_t *compressed,
 bool km_dictionary_end(km_dictionary_t *dictionary)
 {
     if (!dictionary || !dictionary->inflater_started) return false;
-    for (size_t i = 0; i <= KM_MSG_COUNT; ++i) finish_value(dictionary, i);
+    for (size_t i = 0; i < KM_DICTIONARY_SCAN_COUNT; ++i)
+        finish_value(dictionary, i);
     const bool stream_complete = dictionary->inflater_finished;
     inflateEnd(&dictionary->inflater);
     dictionary->inflater_started = false;
     return stream_complete && km_dictionary_ready(dictionary);
+}
+
+bool km_dictionary_control_ready(const km_dictionary_t *dictionary)
+{
+    if (!km_dictionary_ready(dictionary) || !dictionary->found_adc_max
+        || !dictionary->found_pwm_max || !dictionary->found_heater_pin
+        || !dictionary->found_sensor_pin || !dictionary->found_fan_pin)
+        return false;
+    const km_message_key_t required[] = {
+        KM_MSG_GET_CONFIG, KM_MSG_CONFIG, KM_MSG_ALLOCATE_OIDS,
+        KM_MSG_FINALIZE_CONFIG, KM_MSG_CONFIG_PWM_OUT,
+        KM_MSG_QUEUE_PWM_OUT, KM_MSG_CONFIG_ANALOG_IN,
+        KM_MSG_QUERY_ANALOG_IN, KM_MSG_ANALOG_IN_STATE,
+        KM_MSG_EMERGENCY_STOP,
+    };
+    for (size_t i = 0; i < sizeof(required) / sizeof(required[0]); ++i) {
+        if (!dictionary->found[required[i]]) return false;
+    }
+    return dictionary->adc_max > 0 && dictionary->pwm_max > 0;
 }
 
 bool km_dictionary_ready(const km_dictionary_t *dictionary)

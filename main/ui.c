@@ -107,6 +107,7 @@ static uint32_t state_color(km_heater_state_t state)
     case KM_HEATER_HEATING: return COLOR_HEATING;
     case KM_HEATER_HOLDING: return COLOR_HOLDING;
     case KM_HEATER_OVERSHOOT: return COLOR_OVERSHOOT;
+    case KM_HEATER_FAULT: return COLOR_ERROR;
     default: return COLOR_OFF;
     }
 }
@@ -117,6 +118,7 @@ static const char *state_name(km_heater_state_t state)
     case KM_HEATER_HEATING: return "heating";
     case KM_HEATER_HOLDING: return "holding";
     case KM_HEATER_OVERSHOOT: return "overshoot";
+    case KM_HEATER_FAULT: return "fault";
     default: return "off";
     }
 }
@@ -136,8 +138,19 @@ static void refresh(lv_timer_t *timer)
         lv_label_set_text(s_ui.target, "OFF");
         lv_obj_add_flag(s_ui.target_unit, LV_OBJ_FLAG_HIDDEN);
     }
-    const lv_color_t heater_color = lv_color_hex(state_color(state.heater_state));
-    lv_label_set_text(s_ui.heater_label, state_name(state.heater_state));
+    uint32_t heater_rgb = state_color(state.heater_state);
+    const char *heater_text = state_name(state.heater_state);
+    if (state.fault != KM_CONTROL_FAULT_NONE) {
+        snprintf(text, sizeof(text), "FAULT: %s",
+                 km_control_fault_name(state.fault));
+        heater_text = text;
+        heater_rgb = COLOR_ERROR;
+    } else if (state.mcu_connected && !state.control_ready) {
+        heater_text = "sensor wait";
+        heater_rgb = COLOR_DIM;
+    }
+    const lv_color_t heater_color = lv_color_hex(heater_rgb);
+    lv_label_set_text(s_ui.heater_label, heater_text);
     lv_obj_set_style_text_color(s_ui.heater_label, heater_color, 0);
     lv_obj_set_style_bg_color(s_ui.heater_dot, heater_color, 0);
     lv_bar_set_value(s_ui.fan_bar, (int32_t)(state.fan * 100.0f), LV_ANIM_OFF);

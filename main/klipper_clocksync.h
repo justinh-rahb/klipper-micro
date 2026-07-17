@@ -29,3 +29,5 @@ bool km_clocksync_update(km_clocksync_t *sync, uint32_t clock,
 uint64_t km_clocksync_clock_at(const km_clocksync_t *sync, int64_t system_us);
 double km_clocksync_system_time(const km_clocksync_t *sync,
                                 uint64_t mcu_clock);
+uint64_t km_clocksync_clock32_to_clock64(const km_clocksync_t *sync,
+                                         uint32_t clock32);

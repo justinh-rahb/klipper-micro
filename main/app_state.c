@@ -29,6 +29,9 @@ void km_state_init(void)
         .fan = 0.0f,
         .mcu_connected = false,
         .wifi_connected = false,
+        .control_ready = false,
+        .heater_power = 0.0f,
+        .fault = KM_CONTROL_FAULT_NONE,
         .heater_state = KM_HEATER_OFF,
     };
 }
@@ -53,8 +56,13 @@ void km_state_set_temperature(float value)
 void km_state_set_target(float value)
 {
     if (value < 0.0f) value = 0.0f;
-    if (value > 100.0f) value = 100.0f;
+    if (value > 80.0f) value = 80.0f;
     xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (value > 0.0f
+        && (!s_state.control_ready || s_state.fault != KM_CONTROL_FAULT_NONE)) {
+        xSemaphoreGive(s_lock);
+        return;
+    }
     s_state.target = value;
     s_state.heater_state = heater_state(s_state.temperature, s_state.target);
     xSemaphoreGive(s_lock);
@@ -73,6 +81,30 @@ void km_state_set_mcu_connected(bool connected)
 {
     xSemaphoreTake(s_lock, portMAX_DELAY);
     s_state.mcu_connected = connected;
+    if (!connected) {
+        s_state.control_ready = false;
+        s_state.heater_power = 0.0f;
+        s_state.target = 0.0f;
+        s_state.heater_state = KM_HEATER_OFF;
+    }
+    xSemaphoreGive(s_lock);
+}
+
+void km_state_set_control(bool ready, float temperature, float power,
+                          km_control_fault_t fault)
+{
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_state.control_ready = ready && fault == KM_CONTROL_FAULT_NONE;
+    s_state.temperature = temperature;
+    s_state.heater_power = power;
+    s_state.fault = fault;
+    if (fault != KM_CONTROL_FAULT_NONE) {
+        s_state.target = 0.0f;
+        s_state.heater_power = 0.0f;
+        s_state.heater_state = KM_HEATER_FAULT;
+    } else {
+        s_state.heater_state = heater_state(s_state.temperature, s_state.target);
+    }
     xSemaphoreGive(s_lock);
 }
 

@@ -7,6 +7,7 @@
 
 #include "klipper_clocksync.h"
 #include "klipper_dictionary.h"
+#include "heater_control.h"
 #include "klipper_protocol.h"
 #include "zlib.h"
 
@@ -69,11 +70,21 @@ static void test_dictionary(void)
 {
     const char json[] =
         "{\"commands\":{\"get_uptime\":5,\"get_clock\":6,"
+        "\"get_config\":7,\"allocate_oids count=%c\":8,"
+        "\"finalize_config crc=%u\":9,"
+        "\"config_pwm_out oid=%c pin=%u cycle_ticks=%u value=%hu default_value=%hu max_duration=%u\":10,"
+        "\"queue_pwm_out oid=%c clock=%u value=%hu\":11,"
+        "\"config_analog_in oid=%c pin=%u\":13,"
+        "\"query_analog_in oid=%c clock=%u sample_ticks=%u sample_count=%c rest_ticks=%u bytes_per_report=%c min_value=%hu max_value=%hu range_check_count=%c\":14,"
         "\"emergency_stop\":15},\"responses\":{"
-        "\"uptime high=%u clock=%u\":18,\"clock clock=%u\":19},"
-        "\"config\":{\"CLOCK_FREQ\":72000000}}";
+        "\"uptime high=%u clock=%u\":18,\"clock clock=%u\":19,"
+        "\"config is_config=%c crc=%u is_shutdown=%c move_count=%hu\":20,"
+        "\"analog_in_state oid=%c next_clock=%u values=%*s\":21},"
+        "\"enumerations\":{\"pin\":{\"PA1\":1,\"PA2\":2,\"PA3\":3}},"
+        "\"config\":{\"CLOCK_FREQ\":72000000,\"ADC_MAX\":4095,"
+        "\"PWM_MAX\":32768}}";
     uLongf compressed_length = compressBound(sizeof(json) - 1);
-    uint8_t compressed[512];
+    uint8_t compressed[1024];
     assert(compressed_length <= sizeof(compressed));
     assert(compress(compressed, &compressed_length,
                     (const Bytef *)json, sizeof(json) - 1) == Z_OK);
@@ -92,6 +103,12 @@ static void test_dictionary(void)
     assert(km_dictionary_id(&dictionary, KM_MSG_CLOCK) == 19);
     assert(km_dictionary_id(&dictionary, KM_MSG_EMERGENCY_STOP) == 15);
     assert(dictionary.clock_frequency == 72000000);
+    assert(dictionary.adc_max == 4095);
+    assert(dictionary.pwm_max == 32768);
+    assert(dictionary.heater_pin == 1);
+    assert(dictionary.sensor_pin == 2);
+    assert(dictionary.fan_pin == 3);
+    assert(km_dictionary_control_ready(&dictionary));
 }
 
 static void test_clocksync(void)
@@ -108,6 +125,35 @@ static void test_clocksync(void)
     assert(fabs(sync.estimate_frequency - frequency) < 1000.0);
     const uint64_t predicted = km_clocksync_clock_at(&sync, 2500000);
     assert(llabs((long long)predicted - 180000000LL) < 200000);
+    assert(km_clocksync_clock32_to_clock64(&sync, (uint32_t)sync.last_clock)
+           == sync.last_clock);
+}
+
+static void test_heater_control(void)
+{
+    const double adc_25 = km_thermistor_adc_for_temperature(25.0);
+    assert(fabs(km_thermistor_temperature(adc_25) - 25.0) < 0.01);
+
+    km_heater_control_t control;
+    km_heater_control_init(&control, 0);
+    km_heater_control_sample(&control, adc_25, 100000, 60.0);
+    assert(control.has_sample);
+    assert(control.fault == KM_CONTROL_FAULT_NONE);
+    assert(control.power > 0.99);
+    km_heater_control_check(&control, 1200000, 60.0);
+    assert(control.fault == KM_CONTROL_FAULT_SENSOR_STALE);
+    assert(control.power == 0.0);
+
+    km_heater_control_init(&control, 0);
+    for (unsigned i = 0; i < 3; ++i)
+        km_heater_control_sample(&control, 1.0, i * 100000, 0.0);
+    assert(control.fault == KM_CONTROL_FAULT_SENSOR_RANGE);
+
+    km_heater_control_init(&control, 0);
+    for (unsigned i = 0; i <= 6; ++i)
+        km_heater_control_sample(&control, adc_25,
+                                 (int64_t)i * 10000000, 60.0);
+    assert(control.fault == KM_CONTROL_FAULT_HEATING_RATE);
 }
 
 int main(void)
@@ -116,6 +162,7 @@ int main(void)
     test_frames();
     test_dictionary();
     test_clocksync();
+    test_heater_control();
     puts("native protocol tests passed");
     return 0;
 }

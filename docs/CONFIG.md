@@ -10,7 +10,13 @@ auditable:
 | UART TX / RX | GPIO22 / GPIO27 | `main/klipper_client.c` |
 | Display/touch pins | standard ESP32-2432S028R | `main/board.c` |
 | Quick temperatures | 45, 50, 55, 60 C | `main/ui.c` |
-| Setpoint limit | 0..100 C | `main/app_state.c` |
+| Setpoint limit | 0..80 C | `main/app_state.c` |
+| Heater / thermistor / fan | PA1 / PA2 / PA3 | `main/klipper_client.c` |
+| Thermistor | 100k, Beta 3950, 4.7k pull-up | `main/heater_control.c` |
+| PID Kp / Ki / Kd | 22.2 / 1.08 / 114 (Klipper scale) | `main/heater_control.c` |
+| PWM cycle / refresh | 100 ms / 250 ms | `main/klipper_client.c` |
+| MCU output timeout | 3 seconds | `main/klipper_client.c` |
+| Sensor bounds / stale timeout | 0..85 C / 1 second | `main/heater_control.c` |
 
 ## Planned persistence
 
@@ -19,7 +25,7 @@ record instead of parsing `/config.json` at boot. That avoids allocating a JSON
 DOM in a memory-constrained control process. Import/export through the future
 HTTP API can still use JSON at the boundary.
 
-The record will cover:
+The record is expected to cover:
 
 - device name and quick-temperature presets;
 - WiFi credentials;
@@ -31,8 +37,8 @@ The record will cover:
 
 ## Activation rule
 
-Configuration code must not activate a heater merely because a record parses.
-The client must first validate MCU pin enumerations, configure the ADC and PWM
-objects, install the MCU-side output timeout, start sensor sampling, and observe
-a valid in-range temperature. Only then may a non-zero UI setpoint reach the
-control loop.
+Configuration code does not activate a heater merely because values parse. The
+client first validates MCU pin enumerations, configures the ADC and PWM objects,
+installs the MCU-side output timeout, starts sensor sampling, and observes a
+valid in-range temperature. Only then may a non-zero UI setpoint reach the
+control loop. The same activation rule must remain when NVS persistence lands.

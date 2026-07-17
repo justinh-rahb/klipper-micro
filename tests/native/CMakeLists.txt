@@ -8,6 +8,7 @@ add_executable(native_tests
     ../../main/klipper_protocol.c
     ../../main/klipper_dictionary.c
     ../../main/klipper_clocksync.c
+    ../../main/heater_control.c
 )
 target_include_directories(native_tests PRIVATE ../../main)
 target_link_libraries(native_tests PRIVATE ZLIB::ZLIB m)

@@ -3,6 +3,7 @@ idf_component_register(
         "app_main.c"
         "board.c"
         "app_state.c"
+        "heater_control.c"
         "ui.c"
         "klipper_protocol.c"
         "klipper_dictionary.c"
