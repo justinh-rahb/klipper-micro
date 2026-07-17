@@ -13,8 +13,10 @@ venv/
 *.egg-info/
 build/
 dist/
+.pio/
+managed_components/
+sdkconfig
+sdkconfig.old
+sdkconfig.*
+!sdkconfig.defaults
 firmware/cache/
-
-# Synced from vendor/klipper at build time
-src/proto/msgproto.py
-src/proto/_vendor_clocksync.py

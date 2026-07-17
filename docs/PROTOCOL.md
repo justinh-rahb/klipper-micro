@@ -61,7 +61,8 @@ host                                 MCU
 ```
 
 The regression uses an exponentially-weighted moving average (`DECAY = 1/30`)
-plus a minimum-RTT tracker (with aging). Math is taken verbatim from
+plus a minimum-RTT tracker (with aging). The algorithm is ported to C in
+[`src/klipper_clocksync.c`](../src/klipper_clocksync.c) from
 [`vendor/klipper/klippy/clocksync.py`](../vendor/klipper/klippy/clocksync.py).
 
 ## Configuration phase
@@ -69,10 +70,10 @@ plus a minimum-RTT tracker (with aging). Math is taken verbatim from
 After identify + clock sync, the host tells the MCU what hardware to set up:
 
 ```
-allocate_oids count=N                     # reserve N object IDs
-config_pwm_out oid=0 pin=PA1 cycle_ticks=72000 value=0 default_value=0 max_duration=216000
+allocate_oids count=3                     # heater, thermistor, fan
+config_pwm_out oid=0 pin=PA1 cycle_ticks=<100ms> value=0 default_value=0 max_duration=<3s>
 config_analog_in oid=1 pin=PA2
-... etc ...
+config_pwm_out oid=2 pin=PA3 cycle_ticks=<100ms> value=0 default_value=0 max_duration=<3s>
 finalize_config crc=0xDEADBEEF            # CRC of all preceding config commands
 ```
 
@@ -84,11 +85,14 @@ finalised, the host can issue runtime commands (`queue_pwm_out`,
 
 | Command | Purpose | When sent |
 |---|---|---|
-| `queue_pwm_out oid clock value` | Schedule a PWM change at a given MCU clock | Each PID tick → 0..255 byte |
-| `set_pwm_out pin cycle_ticks value` | Immediate PWM change, no OID | Rarely; debugging |
-| `query_analog_in oid clock sample_ticks ...` | Begin periodic ADC sampling | Once per thermistor at startup |
+| `queue_pwm_out oid clock value` | Schedule a PWM change at a given MCU clock | Heater/fan every 250 ms; value is 0..`PWM_MAX` |
+| `query_analog_in oid clock sample_ticks sample_count rest_ticks bytes_per_report min_value max_value range_check_count` | Begin periodic ADC sampling and MCU-side range checking | Once at startup; four 1 ms samples per 100 ms report |
+| `analog_in_state oid next_clock values` | Return packed little-endian ADC samples | Every 100 ms; converted using `ADC_MAX` |
 | `emergency_stop` | Stop all output immediately | Safety violation |
-| `clear_shutdown` | Resume after an emergency stop | User-initiated recovery |
+
+`set_pwm_out` and `clear_shutdown` IDs are discovered for compatibility but are
+not sent by the current control path. Outputs use scheduled OID commands, and a
+shutdown requires an MCU reset rather than an automatic clear.
 
 ## What we don't use
 
@@ -110,5 +114,8 @@ them.
 - [`klippy/serialhdl.py`](../vendor/klipper/klippy/serialhdl.py) — reference host implementation
 - [`klippy/chelper/serialqueue.c`](../vendor/klipper/klippy/chelper/serialqueue.c) — C frame queue (what we replace)
 - [`klippy/chelper/msgblock.c`](../vendor/klipper/klippy/chelper/msgblock.c) — C frame check / VLQ
-- [`src/basecmd.c`](../vendor/klipper/src/basecmd.c) — MCU-side base commands
-- [`src/pwmcmds.c`](../vendor/klipper/src/pwmcmds.c) — MCU-side PWM commands
+- [`src/klipper_protocol.c`](../src/klipper_protocol.c) — native framing, CRC, VLQ, resync
+- [`src/klipper_dictionary.c`](../src/klipper_dictionary.c) — streaming identify filter
+- [`src/klipper_client.c`](../src/klipper_client.c) — UART handshake and retry state machine
+- [`src/basecmd.c`](../vendor/klipper/src/basecmd.c) — upstream MCU-side base commands
+- [`src/pwmcmds.c`](../vendor/klipper/src/pwmcmds.c) — upstream MCU-side PWM commands

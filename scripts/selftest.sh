@@ -1,18 +1,9 @@
 #!/usr/bin/env bash
-# Run src/device_selftest.py on the CYD and stream its output.
-#
-# Usage:
-#   ./scripts/selftest.sh [PORT]
+# Run portable protocol tests and the ESP-IDF cross-build.
 
 set -euo pipefail
 
-PORT="${1:-/dev/tty.usbserial-3110}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-
-if [ -x "$REPO_ROOT/.venv/bin/mpremote" ]; then
-    MPREMOTE="$REPO_ROOT/.venv/bin/mpremote"
-else
-    MPREMOTE="$(command -v mpremote)"
-fi
-
-exec "$MPREMOTE" connect "port:$PORT" run "$REPO_ROOT/src/device_selftest.py"
+cd "$REPO_ROOT"
+./scripts/test-native.sh
+pio run -e cyd

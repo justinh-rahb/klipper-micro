@@ -9,7 +9,7 @@ The reference target is the [ESP32-2432S028R](https://github.com/witnessmenow/ES
 |---|---|
 | MCU | ESP32-WROOM-32 (dual-core Xtensa LX6 @ 240 MHz) |
 | Flash | 4 MB |
-| RAM | 520 KB (16 KB usable to MicroPython after LVGL is loaded) |
+| RAM | 520 KB total; native build currently reserves ~76 KB statically |
 | Display | 2.8" TFT, 240×320, ILI9341 |
 | Touch | Resistive, XPT2046 |
 | Networking | WiFi 802.11 b/g/n, Bluetooth |
@@ -44,19 +44,9 @@ CYD P1                       Klipper MCU (3.3 V logic side)
 ```
 
 Use the same baudrate on both ends. Klipper's default for stock STM32 builds
-is `250000`. Configure in `src/config.json`:
-
-```json
-{
-  "transport": {
-    "type": "uart",
-    "uart_id": 2,
-    "baudrate": 250000,
-    "tx": 22,
-    "rx": 27
-  }
-}
-```
+is `250000`. The current UART2 baudrate and GPIO22/GPIO27 pin assignment are
+compile-time settings in `src/klipper_client.c`; NVS-backed runtime
+configuration is planned.
 
 ## Klipper MCU firmware
 
