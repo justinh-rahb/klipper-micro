@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "app_state.h"
 #include "board.h"
 #include "esp_err.h"

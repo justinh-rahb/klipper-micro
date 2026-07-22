@@ -94,6 +94,6 @@ tests/native/             portable C unit tests
 vendor/klipper/           pinned upstream Klipper source
 ```
 
-Board, state, and UI code are MIT-licensed. The `klipper_*` protocol/client
-modules port behavior and algorithms from upstream Klipper and are explicitly
-GPLv3-or-later; a redistributed combined firmware image must follow GPLv3.
+This project is licensed under GPLv3-or-later. See `LICENSE` for the license
+text. The `vendor/klipper/` tree remains pinned upstream Klipper source with
+its own bundled notices.
